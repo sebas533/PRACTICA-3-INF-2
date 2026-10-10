@@ -30,7 +30,7 @@ Lo que se quiere demostrar:
 
 ## 2. Topología
 
-![Topología](IMAGENES/Topologia.png)
+![Topología](IMAGENEs/Topologia.png)
 
 ---
 
