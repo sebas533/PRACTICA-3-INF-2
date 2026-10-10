@@ -1,0 +1,105 @@
+
+R-CISCO-2168#SHOW RUNNING
+Building configuration...
+
+Current configuration : 1334 bytes
+!
+version 15.2
+service timestamps debug datetime msec
+service timestamps log datetime msec
+!
+hostname R-CISCO-2168
+!
+boot-start-marker
+boot-end-marker
+!
+!
+!
+no aaa new-model
+no ip icmp rate-limit unreachable
+!
+!
+!
+!
+!
+!
+no ip domain lookup
+ip cef
+no ipv6 cef
+!
+!
+multilink bundle-name authenticated
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+ip tcp synwait-time 5
+!
+!
+!
+!
+!
+!
+!
+!
+!
+interface FastEthernet0/0
+ no ip address
+ shutdown
+ duplex full
+!
+interface FastEthernet1/0
+ description WAN-HACIA-ISP-2168-T2
+ ip address 21.68.4.2 255.255.255.252
+ ip nat outside
+ speed auto
+ duplex auto
+!
+interface FastEthernet1/1
+ description LAN-HACIA-WEB-SV-2168
+ ip address 10.21.68.129 255.255.255.240
+ ip nat inside
+ speed auto
+ duplex auto
+!
+ip nat inside source list 101 interface FastEthernet1/0 overload
+ip nat inside source static tcp 10.21.68.130 443 interface FastEthernet1/0 443
+ip forward-protocol nd
+!
+!
+no ip http server
+no ip http secure-server
+ip route 0.0.0.0 0.0.0.0 21.74.4.1
+ip route 0.0.0.0 0.0.0.0 21.68.4.1
+!
+access-list 101 deny   ip 10.21.68.128 0.0.0.15 host 21.68.3.2
+access-list 101 permit ip 10.21.68.128 0.0.0.15 any
+!
+!
+!
+control-plane
+!
+!
+line con 0
+ exec-timeout 0 0
+ privilege level 15
+ logging synchronous
+ stopbits 1
+line aux 0
+ exec-timeout 0 0
+ privilege level 15
+ logging synchronous
+ stopbits 1
+line vty 0 4
+ login
+!
+!
+end
