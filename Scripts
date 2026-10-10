@@ -1,0 +1,97 @@
+# Scripts de la Práctica #3 — Infraestructura #2
+! ===== ISP-2168 =====
+show ip interface brief
+! Fa0/0 DHCP up/up | Fa1/0 21.68.3.1 up/up | Fa1/1 21.68.4.1 up/up
+show ip route
+! C 21.68.3.0/30, C 21.68.4.0/30, S* 0.0.0.0/0
+show ip nat statistics
+ping 21.68.3.2
+ping 21.68.4.2
+ping 8.8.8.8
+! !!!!! en los tres
+
+! ===== R-CISCO-2168 =====
+show ip interface brief
+! Fa1/0 21.68.4.2 up/up | Fa1/1 192.168.11.1 up/up
+show ip route
+! S* 0.0.0.0/0 via 21.68.4.1
+show ip dhcp binding
+! el cliente VPN con 192.168.11.10+
+show ip nat translations
+! traducciones 192.168.11.x -> 21.68.4.2 (UDP 500/4500 cuando sube la VPN)
+ping 21.68.4.1
+ping 21.68.3.2
+! !!!!! en ambos
+
+! ===== SW-USERS =====
+show vlan brief
+! VLAN 10 USERS con Gi0/1 y Gi0/2
+show interfaces trunk
+! Gi0/0 trunking 802.1q, VLAN 10 forwarding
+show interfaces status
+
+! ===== SW-VPN =====
+show vlan brief
+! VLAN 11 con Gi0/0 y Gi0/1
+show interfaces status
+
+
+cat > t02.sh <<'EOF'
+#!/bin/bash
+P=0; F=0
+ok(){ echo -e "  \e[32m[PASS]\e[0m $1"; P=$((P+1)); }
+ko(){ echo -e "  \e[31m[FAIL]\e[0m $1"; F=$((F+1)); }
+yes_(){ if eval "$2" >/dev/null 2>&1; then ok "$1"; else ko "$1"; fi; }
+no_(){  if eval "$2" >/dev/null 2>&1; then ko "$1"; else ok "$1"; fi; }
+
+echo "== Red =="
+yes_ "IP 10.21.68.130/29"          "ip -4 addr | grep -q '10.21.68.130/29'"
+yes_ "Gateway 10.21.68.129"        "ip route | grep -q 'default via 10.21.68.129'"
+yes_ "Ping al gateway (FG port4)"  "ping -c2 -W2 10.21.68.129"
+echo "== Servicios =="
+yes_ "Apache activo"               "systemctl is-active --quiet apache2"
+yes_ "SSH activo"                  "systemctl is-active --quiet ssh"
+yes_ "xrdp activo"                 "systemctl is-active --quiet xrdp"
+yes_ "Escucha 443"                 "ss -tln | grep -q ':443 '"
+yes_ "Escucha 22"                  "ss -tln | grep -q ':22 '"
+yes_ "Escucha 3389"                "ss -tln | grep -q ':3389 '"
+no_  "Puerto 80 CERRADO"           "ss -tln | grep -q ':80 '"
+echo "== Aplicacion =="
+yes_ "HTTPS local 200"             "curl -ks -o /dev/null -w '%{http_code}' https://localhost | grep -q 200"
+yes_ "Pagina 'Sistema de Caja'"    "curl -ks https://localhost | grep -q 'Sistema de Caja'"
+echo "== Internet (debe estar SIN salida con la politica temporal apagada) =="
+if ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then echo "  [INFO] Aun hay Internet: apaga TEMP-SERVERS-INTERNET"; else ok "Sin Internet"; fi
+echo; echo "RESULTADO: $P PASS / $F FAIL"
+EOF
+bash 
+
+cat > t05.sh <<'EOF'
+#!/bin/bash
+ROL=${1:-sin}; JUMP=10.21.68.138; WEB=10.21.68.130
+IF=$(ls /sys/class/net | grep -v lo | head -n1)
+P=0; F=0
+ok(){ echo -e "  \e[32m[PASS]\e[0m $1"; P=$((P+1)); }
+ko(){ echo -e "  \e[31m[FAIL]\e[0m $1"; F=$((F+1)); }
+t(){ if timeout 4 bash -c "exec 3<>/dev/tcp/$1/$2" 2>/dev/null; then R=true; else R=false; fi
+     [ "$R" = "$3" ] && ok "$1:$2 -> $R (esperado $3)" || ko "$1:$2 -> $R (esperado $3)"; }
+
+sudo dhclient -r $IF 2>/dev/null; sudo dhclient $IF; sleep 2
+IP=$(ip -4 addr show $IF | awk '/inet /{print $2}' | cut -d/ -f1)
+echo "== DHCP =="; echo "  IP recibida: $IP"
+[ "$ROL" = "sin" ] && ESP=10.21.68.11 || ESP=10.21.68.12
+[ "$IP" = "$ESP" ] && ok "IP reservada $ESP" || ko "Esperaba $ESP"
+ping -c2 -W2 10.21.68.1 >/dev/null 2>&1 && ok "Ping gateway 10.21.68.1" || ko "Ping gateway"
+
+echo "== Hacia el Jump Server =="
+t $JUMP 443 true
+if [ "$ROL" = "con" ]; then t $JUMP 22 true; t $JUMP 3389 true
+else t $JUMP 22 false; t $JUMP 3389 false; fi
+echo "== Hacia el Web Server (debe estar bloqueado) =="
+t $WEB 22 false
+t $WEB 443 false
+t $WEB 3389 false
+echo "== Internet (no requerido) =="
+ping -c1 -W2 8.8.8.8 >/dev/null 2>&1 && echo "  [INFO] Hay salida a Internet" || echo "  [INFO] Sin salida a Internet"
+echo; echo "RESULTADO ($ROL): $P PASS / $F FAIL"
+EOF
+bash t05.sh sin
